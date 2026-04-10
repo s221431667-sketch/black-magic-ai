@@ -1,15 +1,12 @@
 const express = require("express");
 const cors = require("cors");
-const OpenAI = require("openai");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const CHATBOX_API_KEY = "chat_sk_amabhozza_7f92c1d8e4b6x901";
 
-const client = new OpenAI({
-  baseURL: "https://router.huggingface.co/v1",
-  apiKey: process.env.HF_TOKEN
-});
+const APP_API_KEY = process.env.APP_API_KEY;
+const HF_TOKEN = process.env.HF_TOKEN;
+const HF_MODEL = process.env.HF_MODEL || "mistralai/Mistral-7B-Instruct-v0.3";
 
 app.use(cors());
 app.use(express.json());
@@ -17,22 +14,20 @@ app.use(express.json());
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    message: "Chat API is running (Hugging Face connected)",
-    apiKeyHeader: "x-api-key",
-    endpoint: "/api/chat"
+    message: "Black Magic AI backend is running"
   });
 });
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const apiKey = req.headers["x-api-key"];
+    const key = req.headers["x-api-key"];
     const message = req.body?.message?.trim();
 
-    if (!apiKey) {
-      return res.status(401).json({ success: false, error: "Missing API key" });
+    if (!key) {
+      return res.status(401).json({ success: false, error: "API key missing" });
     }
 
-    if (apiKey !== CHATBOX_API_KEY) {
+    if (key !== APP_API_KEY) {
       return res.status(403).json({ success: false, error: "Invalid API key" });
     }
 
@@ -40,36 +35,49 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ success: false, error: "Message is required" });
     }
 
-    const completion = await client.chat.completions.create({
-      model: "openai/gpt-oss-120b:fastest",
-      messages: [
-        {
-          role: "system",
-          content: "You are Black Magic AI, intelligent, helpful, and knowledgeable."
-        },
-        {
-          role: "user",
-          content: message
-        }
-      ],
-      max_tokens: 300
+    const response = await fetch("https://router.huggingface.co/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${HF_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: HF_MODEL,
+        messages: [
+          { role: "system", content: "You are Black Magic AI. Reply clearly and helpfully." },
+          { role: "user", content: message }
+        ],
+        max_tokens: 300
+      })
     });
 
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(500).json({
+        success: false,
+        error: data?.error || "Hugging Face request failed"
+      });
+    }
+
     const reply =
-      completion.choices?.[0]?.message?.content || "No response received.";
+      data?.choices?.[0]?.message?.content ||
+      "No response generated.";
 
     return res.json({
       success: true,
       reply
     });
+
   } catch (error) {
     return res.status(500).json({
       success: false,
-      error: error.message || "AI request failed"
+      error: "Server error",
+      details: error.message
     });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log("Server running on port " + PORT);
 });
